@@ -25,4 +25,5 @@ description = "A fast, native PDF viewer (Slint + PDFium)"
 authors = ["OpenAEC Foundation"]
 before-packaging-command = "cargo build --release -p open-pdf-studio3"
 resources = ["pdfium-lib"]
-formats = ["nsis", "app", "dmg", "deb", "appimage"]
+# Formats are chosen per-OS on the CLI in the release workflow (a single
+# manifest list would make each runner try to build foreign formats).

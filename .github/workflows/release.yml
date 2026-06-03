@@ -23,12 +23,15 @@ jobs:
           - os: windows-latest
             pdfium-asset: pdfium-win-x64
             pdfium-libfile: bin/pdfium.dll
+            pkg-formats: --formats nsis
           - os: ubuntu-latest
             pdfium-asset: pdfium-linux-x64
             pdfium-libfile: lib/libpdfium.so
+            pkg-formats: --formats deb
           - os: macos-latest
             pdfium-asset: pdfium-mac-arm64
             pdfium-libfile: lib/libpdfium.dylib
+            pkg-formats: --formats app --formats dmg
 
     steps:
       - uses: actions/checkout@v4
@@ -70,7 +73,7 @@ jobs:
       # `before-packaging-command` (in Cargo.toml) runs `cargo build --release`,
       # then cargo-packager produces the platform installer(s).
       - name: Package installers
-        run: cargo packager --release -p open-pdf-studio3 --verbose
+        run: cargo packager --release -p open-pdf-studio3 ${{ matrix.pkg-formats }} --verbose
 
       - name: Collect installers
         shell: bash
