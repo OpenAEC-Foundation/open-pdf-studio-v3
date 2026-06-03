@@ -24,6 +24,8 @@ identifier = "org.openaec.open-pdf-studio"
 description = "A fast, native PDF viewer (Slint + PDFium)"
 authors = ["OpenAEC Foundation"]
 resources = ["pdfium-lib"]
+# App icon set: cargo-packager picks .ico (Windows), .icns (macOS), PNGs (Linux).
+icons = ["icons/32x32.png", "icons/128x128.png", "icons/128x128@2x.png", "icons/icon.icns", "icons/icon.ico"]
 # The release binary is built by an explicit `cargo build --release` step in
 # the workflow (not `before-packaging-command`) so the Windows .exe can be
 # code-signed *before* cargo-packager bundles it into the installer.
