@@ -46,8 +46,13 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
 
+      # Restore on all OSes; skip the cache *save* on Windows, whose post-job
+      # tar intermittently fails on a locked file and would fail the whole job
+      # (blocking the release). Linux/macOS still persist their cache.
       - name: Cache cargo build
         uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ runner.os != 'Windows' }}
 
       # Slint's default (winit + femtovg) backend needs these to build on Linux.
       - name: Install Slint build dependencies (Linux)

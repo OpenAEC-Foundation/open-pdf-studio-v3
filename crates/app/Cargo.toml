@@ -15,6 +15,10 @@ directories = "6.0.0"
 [build-dependencies]
 slint-build = { workspace = true }
 
+# Embeds the app icon into the Windows .exe as a PE resource (see build.rs).
+[target.'cfg(windows)'.build-dependencies]
+winresource = "0.1"
+
 # Installer/bundle configuration for `cargo packager`.
 # CI fetches the per-platform PDFium into `pdfium-lib/` (see release workflow),
 # which is bundled as a resource; `locate_pdfium` finds it at runtime.
@@ -31,3 +35,9 @@ icons = ["icons/32x32.png", "icons/128x128.png", "icons/128x128@2x.png", "icons/
 # code-signed *before* cargo-packager bundles it into the installer.
 # Formats are chosen per-OS on the CLI in the release workflow (a single
 # manifest list would make each runner try to build foreign formats).
+
+# NSIS (Windows installer) specifics. The top-level `icons` set the installed
+# app icon, but the setup.exe's own icon must be set here or NSIS uses a
+# generic default.
+[package.metadata.packager.nsis]
+installer-icon = "icons/icon.ico"
