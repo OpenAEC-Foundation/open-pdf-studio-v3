@@ -23,7 +23,9 @@ product-name = "Open PDF Studio"
 identifier = "org.openaec.open-pdf-studio"
 description = "A fast, native PDF viewer (Slint + PDFium)"
 authors = ["OpenAEC Foundation"]
-before-packaging-command = "cargo build --release -p open-pdf-studio3"
 resources = ["pdfium-lib"]
+# The release binary is built by an explicit `cargo build --release` step in
+# the workflow (not `before-packaging-command`) so the Windows .exe can be
+# code-signed *before* cargo-packager bundles it into the installer.
 # Formats are chosen per-OS on the CLI in the release workflow (a single
 # manifest list would make each runner try to build foreign formats).

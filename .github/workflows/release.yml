@@ -2,8 +2,10 @@ name: Build installers
 
 # Runs on a version tag (v1.2.3) and can also be triggered manually.
 #   • Every run builds the per-OS installers and uploads them as artifacts.
+#   • The Windows .exe and its NSIS installer are code-signed with Azure
+#     Trusted Signing (Azure Artifact Signing) using the AZURE_* repo secrets.
 #   • On a tag, a final `release` job fans in — it waits for all three builds,
-#     downloads their artifacts, and publishes ONE GitHub Release with the lot.
+#     downloads their artifacts, and publishes them as ONE GitHub Release.
 on:
   push:
     tags: ["v*"]
@@ -32,6 +34,11 @@ jobs:
             pdfium-asset: pdfium-mac-arm64
             pdfium-libfile: lib/libpdfium.dylib
             pkg-formats: --formats app --formats dmg
+    # Azure Trusted Signing auth — consumed only by the Windows sign steps.
+    env:
+      AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+      AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+      AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
 
     steps:
       - uses: actions/checkout@v4
@@ -70,8 +77,24 @@ jobs:
         with:
           tool: cargo-packager
 
-      # `before-packaging-command` (in Cargo.toml) runs `cargo build --release`,
-      # then cargo-packager produces the platform installer(s).
+      - name: Install artifact-signing-cli (Windows)
+        if: runner.os == 'Windows'
+        run: cargo install artifact-signing-cli --version 0.11.0
+
+      # Build explicitly (not via before-packaging-command) so the Windows .exe
+      # can be signed before cargo-packager bundles it into the installer.
+      - name: Build (release)
+        run: cargo build --release -p open-pdf-studio3
+
+      - name: Sign app binary — Azure Trusted Signing (Windows)
+        if: runner.os == 'Windows'
+        run: >
+          artifact-signing-cli
+          -e "${{ secrets.AZURE_ENDPOINT }}"
+          -a "${{ secrets.AZURE_TRUSTED_SIGNING_ACCOUNT_NAME }}"
+          -c "${{ secrets.AZURE_CERTIFICATE_PROFILE_NAME }}"
+          target/release/open-pdf-studio3.exe
+
       - name: Package installers
         run: cargo packager --release -p open-pdf-studio3 ${{ matrix.pkg-formats }} --verbose
 
@@ -84,6 +107,26 @@ jobs:
                -o -name '*.deb' -o -name '*.AppImage' -o -name '*.rpm' \) \
             -exec cp {} artifacts/ \; 2>/dev/null || true
           echo "Collected:"; ls -la artifacts || true
+
+      - name: Sign installer — Azure Trusted Signing (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          Get-ChildItem artifacts/*-setup.exe | ForEach-Object {
+            Write-Host "Signing $($_.Name)"
+            artifact-signing-cli -e "${{ secrets.AZURE_ENDPOINT }}" -a "${{ secrets.AZURE_TRUSTED_SIGNING_ACCOUNT_NAME }}" -c "${{ secrets.AZURE_CERTIFICATE_PROFILE_NAME }}" $_.FullName
+            if ($LASTEXITCODE -ne 0) { throw "signing failed for $($_.Name)" }
+          }
+
+      # Fail loudly if signing was silently skipped — an unsigned installer
+      # must never reach the release.
+      - name: Verify installer signature (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          Get-ChildItem artifacts/*-setup.exe | ForEach-Object {
+            $s = Get-AuthenticodeSignature $_.FullName
+            Write-Host "$($_.Name): $($s.Status) — $($s.SignerCertificate.Subject)"
+            if ($s.Status -eq 'NotSigned') { throw "$($_.Name) is NOT signed" }
+          }
 
       - name: Upload installer artifacts
         uses: actions/upload-artifact@v4

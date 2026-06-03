@@ -4,6 +4,10 @@
 // to the engine, bridges engine events back to the UI, and persists settings.
 // All PDF work lives in the `pdf-engine` crate, which has no UI dependency.
 
+// Use the Windows GUI subsystem in release builds so launching the app does
+// not spawn a console window (debug builds keep the console for logs/panics).
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+
 slint::include_modules!();
 
 mod bridge;
