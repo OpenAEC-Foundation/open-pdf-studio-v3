@@ -11,8 +11,8 @@
 //!     |event| { /* handle event on the worker thread */ },
 //!     pdf_engine::BASE_RENDER_WIDTH,
 //! );
-//! engine.open("document.pdf".into());
-//! engine.render(0);
+//! engine.open(0, "document.pdf".into());
+//! engine.render(0, 0);
 //! ```
 
 mod library;
@@ -20,7 +20,7 @@ mod render;
 mod types;
 mod worker;
 
-pub use types::Event;
+pub use types::{DocMeta, Event};
 
 use std::path::PathBuf;
 use std::sync::mpsc::{self, Sender};
@@ -49,19 +49,32 @@ impl Engine {
         Engine { tx }
     }
 
-    /// Open a document (emits [`Event::Opened`] or [`Event::Error`]).
-    pub fn open(&self, path: PathBuf) {
-        let _ = self.tx.send(Command::Open(path));
+    /// Open a document under `id` (emits [`Event::Opened`] or [`Event::Error`]).
+    pub fn open(&self, id: u32, path: PathBuf) {
+        let _ = self.tx.send(Command::Open { id, path });
     }
 
-    /// Request a page render (emits [`Event::PageRendered`]). Already-rendered
-    /// pages at the current resolution are ignored.
-    pub fn render(&self, index: i32) {
-        let _ = self.tx.send(Command::Render(index));
+    /// Request a page render for document `id` (emits [`Event::PageRendered`]).
+    /// Already-rendered pages at the document's current resolution are ignored.
+    pub fn render(&self, id: u32, index: i32) {
+        let _ = self.tx.send(Command::Render { id, index });
     }
 
-    /// Set the render resolution (page width in px); subsequent renders use it.
-    pub fn set_render_width(&self, width: i32) {
-        let _ = self.tx.send(Command::SetRenderWidth(width));
+    /// Request a small thumbnail render for document `id`, page `index` (emits
+    /// [`Event::ThumbRendered`]). Thumbnails are a fixed small size, independent
+    /// of zoom, and cached per document.
+    pub fn render_thumb(&self, id: u32, index: i32) {
+        let _ = self.tx.send(Command::RenderThumb { id, index });
+    }
+
+    /// Set the render resolution (page width in px) for document `id`; subsequent
+    /// renders of that document use it. Changing it re-renders on demand.
+    pub fn set_render_width(&self, id: u32, width: i32) {
+        let _ = self.tx.send(Command::SetRenderWidth { id, width });
+    }
+
+    /// Close document `id`, freeing its memory.
+    pub fn close(&self, id: u32) {
+        let _ = self.tx.send(Command::Close { id });
     }
 }

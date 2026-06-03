@@ -16,6 +16,9 @@ pub struct Settings {
     pub restore_session: bool,
     pub author_name: String,
     pub recent_files: Vec<String>,
+    /// Last window size (logical px); 0 = unset (use the default size).
+    pub window_w: f32,
+    pub window_h: f32,
 }
 
 impl Default for Settings {
@@ -28,6 +31,8 @@ impl Default for Settings {
                 .or_else(|_| std::env::var("USER"))
                 .unwrap_or_default(),
             recent_files: Vec::new(),
+            window_w: 0.0,
+            window_h: 0.0,
         }
     }
 }

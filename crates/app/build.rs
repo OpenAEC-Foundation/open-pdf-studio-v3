@@ -10,6 +10,9 @@ fn main() {
         println!("cargo:rerun-if-changed=icons/icon.ico");
         let mut res = winresource::WindowsResource::new();
         res.set_icon("icons/icon.ico");
+        // Friendly name shown by Windows (e.g. "Open with → Open PDF Studio").
+        res.set("ProductName", "Open PDF Studio");
+        res.set("FileDescription", "Open PDF Studio");
         res.compile().expect("failed to embed Windows icon resource");
     }
 }

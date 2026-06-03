@@ -1,19 +1,12 @@
 import { ScrollView } from "std-widgets.slint";
 import { Ribbon } from "ribbon.slint";
-import { NavButton, EditField, Scrollbar } from "components.slint";
+import { NavButton, EditField, Scrollbar, DocTabBar, DocTabItem, ThumbPanel, PropsPanel, DocProps, PageItem } from "components.slint";
 import { Backstage, RecentFile } from "backstage.slint";
 import { Preferences } from "preferences.slint";
 
-// One page slot. `aspect` (height/width) is known up front from cheap page
-// metadata so the row has the right height before its bitmap is rendered.
-struct PageItem {
-    image: image,
-    aspect: float,
-    loaded: bool,
-}
-
 export component AppWindow inherits Window {
-    title: "Open PDF Studio — PDFium + Slint";
+    in property <string> app-version;
+    title: "Open PDF Studio " + root.app-version;
     icon: @image-url("../icons/icon.png");
     preferred-width: 980px;
     preferred-height: 1040px;
@@ -22,6 +15,16 @@ export component AppWindow inherits Window {
     background: #3a3a3a;
 
     in property <[PageItem]> pages;
+    // Page thumbnails for the left navigation panel.
+    in property <[PageItem]> thumbs;
+    in-out property <bool> left-panel-open: true;
+    // Document properties for the right navigation panel.
+    in property <DocProps> props;
+    in property <string> prop-page-size;
+    in-out property <bool> right-panel-open: true;
+    // Open documents (tab strip) and which one is active (-1 = none).
+    in property <[DocTabItem]> open-docs;
+    in-out property <int> active-doc-id: -1;
     in property <string> status;
     in-out property <int> total-pages;
     in-out property <int> current-page: 1;
@@ -50,8 +53,10 @@ export component AppWindow inherits Window {
     // overflow/scroll is detected reliably regardless of the content variant.
     in-out property <length> content-height;
 
-    // Live scroll geometry — read from Rust to decide which pages to render.
+    // Live scroll geometry — read from Rust to decide which pages to render and
+    // to save/restore each tab's scroll position.
     out property <length> scroll-y: -flick.viewport-y;
+    out property <length> scroll-x: -flick.viewport-x;
     out property <length> view-height: flick.height;
 
     callback open-file();              // "Open…" / File tab
@@ -64,6 +69,9 @@ export component AppWindow inherits Window {
     callback filter-recents(string);   // filter the recents list
     callback exit-app();               // quit the application
     callback save-prefs();             // persist Preferences to disk
+    callback select-doc(int);          // switch to an open document tab
+    callback close-doc(int);           // close an open document tab
+    callback request-thumb(int);       // a thumbnail slot needs rendering
 
     function set-zoom(z: float) {
         root.zoom = clamp(z, 0.1, 8.0);
@@ -84,6 +92,12 @@ export component AppWindow inherits Window {
 
     // Scroll so the content offset `y` (px from the top) sits at the viewport top.
     public function scroll-to-y(y: length) {
+        flick.viewport-y = -min(y, max(0px, flick.viewport-height - flick.height));
+    }
+
+    // Restore a tab's saved scroll position (both axes), clamped to content.
+    public function restore-scroll(x: length, y: length) {
+        flick.viewport-x = -min(x, max(0px, flick.viewport-width - flick.width));
         flick.viewport-y = -min(y, max(0px, flick.viewport-height - flick.height));
     }
 
@@ -140,14 +154,52 @@ export component AppWindow inherits Window {
             find => { root.action-todo("Find"); }
         }
 
+        // ── Document tabs (always shown, even with no document open) ───────────
+        DocTabBar {
+            docs: root.open-docs;
+            select(id) => { root.select-doc(id); }
+            close(id) => { root.close-doc(id); }
+            new-doc => { root.open-file(); }
+        }
+
         // ── Page area ────────────────────────────────────────────────────────
         // A Flickable provides native wheel scrolling; `viewport-height` is set
         // explicitly (content-height, computed in Rust) so overflow is detected
         // reliably. An input layer adds Ctrl+wheel zoom and middle-button pan; our
         // own always-visible scrollbars overlay the edges.
-        Rectangle {
+        HorizontalLayout {
             vertical-stretch: 1;
-            clip: true;
+
+            // Left navigation panel (thumbnails), collapsible.
+            if root.open-docs.length > 0 && root.left-panel-open: ThumbPanel {
+                thumbs: root.thumbs;
+                current-page: root.current-page;
+                goto(p) => { root.goto-page(p); }
+                request-thumb(i) => { root.request-thumb(i); }
+                collapse => { root.left-panel-open = false; }
+            }
+            if root.open-docs.length > 0 && !root.left-panel-open: Rectangle {
+                min-width: 22px;
+                max-width: 22px;
+                background: #2d2d2d;
+                Text {
+                    text: "»";
+                    color: #c8c8c8;
+                    font-size: 15px;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
+                TouchArea { clicked => { root.left-panel-open = true; } }
+            }
+            if root.open-docs.length > 0: Rectangle {
+                min-width: 1px;
+                max-width: 1px;
+                background: #1c1c1c;
+            }
+
+            Rectangle {
+                horizontal-stretch: 1;
+                clip: true;
 
             flick := Flickable {
                 width: 100%;
@@ -295,6 +347,43 @@ export component AppWindow inherits Window {
                 total-size: flick.viewport-width;
                 offset: -flick.viewport-x;
                 moved(o) => { flick.viewport-x = -o; }
+            }
+            }
+
+            // ── Right panel: document properties (collapsible) ─────────────
+            if root.open-docs.length > 0: Rectangle {
+                min-width: 1px;
+                max-width: 1px;
+                background: #1c1c1c;
+            }
+            if root.open-docs.length > 0 && root.right-panel-open: PropsPanel {
+                props: root.props;
+                page-size: root.prop-page-size;
+                current-page: root.current-page;
+                total-pages: root.total-pages;
+                collapse => { root.right-panel-open = false; }
+            }
+            if root.open-docs.length > 0 && !root.right-panel-open: Rectangle {
+                min-width: 26px;
+                max-width: 26px;
+                background: rta.has-hover ? #343434 : #2d2d2d;
+                rta := TouchArea { clicked => { root.right-panel-open = true; } }
+                Text {
+                    text: "‹";
+                    y: 7px;
+                    width: parent.width;
+                    color: #c8c8c8;
+                    font-size: 14px;
+                    horizontal-alignment: center;
+                }
+                Text {
+                    text: "Properties";
+                    color: #b0b0b0;
+                    font-size: 12px;
+                    transform-rotation: 90deg;
+                    x: (parent.width - self.width) / 2;
+                    y: (parent.height - self.height) / 2;
+                }
             }
         }
 

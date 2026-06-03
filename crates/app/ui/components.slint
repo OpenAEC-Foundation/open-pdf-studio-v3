@@ -1,5 +1,14 @@
 // Reusable UI widgets shared across the app (status bar + ribbon).
 
+// One page slot, shared by the main view and the thumbnail panel. `aspect`
+// (height/width) is known up front from cheap page metadata so the slot has the
+// right size before its bitmap is rendered.
+export struct PageItem {
+    image: image,
+    aspect: float,
+    loaded: bool,
+}
+
 // ── Status-bar widgets ───────────────────────────────────────────────────────
 
 // Compact, flat, hover-highlighted button.
@@ -57,6 +66,486 @@ export component EditField inherits Rectangle {
     }
     init => { ti.text = root.value; }
     changed value => { ti.text = root.value; }
+}
+
+// ── Document tabs (below the ribbon) ─────────────────────────────────────────
+
+// One open file in the document-tab strip.
+export struct DocTabItem {
+    id: int,
+    name: string,
+    active: bool,
+}
+
+// A browser-style strip of open documents, with per-tab close (×) and a
+// trailing new-tab (+) button.
+export component DocTabBar inherits Rectangle {
+    in property <[DocTabItem]> docs;
+    callback select(int);
+    callback close(int);
+    callback new-doc();
+
+    height: 34px;
+    background: #262626;
+    clip: true;
+
+    HorizontalLayout {
+        alignment: start;
+
+        for d in root.docs: Rectangle {
+            min-width: 190px;
+            max-width: 190px;
+            background: d.active ? #3a3a3a : (ta.has-hover ? #303030 : #262626);
+
+            ta := TouchArea {
+                clicked => { root.select(d.id); }
+            }
+
+            // Orange accent along the top of the active tab.
+            Rectangle {
+                x: 0;
+                y: 0;
+                width: 100%;
+                height: 2px;
+                background: d.active ? #e0822e : transparent;
+            }
+            // Right divider.
+            Rectangle { x: parent.width - 1px; width: 1px; background: #1c1c1c; }
+
+            HorizontalLayout {
+                padding-left: 12px;
+                padding-right: 4px;
+                spacing: 4px;
+
+                Text {
+                    text: d.name;
+                    color: d.active ? #f0f0f0 : #b0b0b0;
+                    font-size: 12px;
+                    vertical-alignment: center;
+                    overflow: elide;
+                    horizontal-stretch: 1;
+                }
+                // Close (X) — shown on the active tab or on hover.
+                Rectangle {
+                    min-width: 22px;
+                    max-width: 22px;
+                    height: 22px;
+                    y: (parent.height - self.height) / 2;
+                    border-radius: 4px;
+                    visible: d.active || ta.has-hover || cta.has-hover;
+                    background: transparent;
+                    Image {
+                        source: @image-url("icons/close.svg");
+                        width: 11px;
+                        height: 11px;
+                        colorize: cta.has-hover ? #ff4d4d : #c0c0c0;
+                    }
+                    cta := TouchArea {
+                        clicked => { root.close(d.id); }
+                    }
+                }
+            }
+        }
+
+        // New-tab (+) button.
+        Rectangle {
+            min-width: 36px;
+            max-width: 36px;
+            background: pta.has-hover ? #303030 : #262626;
+            Text {
+                text: "+";
+                color: #c8c8c8;
+                font-size: 18px;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+            }
+            pta := TouchArea {
+                clicked => { root.new-doc(); }
+            }
+        }
+    }
+}
+
+// Always-visible-when-needed scrollbar (overlay). Bind it to a ScrollView's
+// viewport/visible sizes and report drags back via `moved`.
+export component Scrollbar inherits Rectangle {
+    in property <bool> horizontal: false;
+    in property <length> page-size;   // visible extent along the axis
+    in property <length> total-size;  // content extent along the axis
+    in property <length> offset;      // current scroll offset (0..max), positive
+    callback moved(length);           // requested new offset
+
+    property <length> thickness: 12px;
+    property <length> track-len: root.horizontal ? root.width : root.height;
+    property <length> thumb-len: clamp(root.track-len * (root.page-size / max(1px, root.total-size)), 28px, root.track-len);
+    property <length> max-offset: max(1px, root.total-size - root.page-size);
+    property <length> thumb-pos: (root.track-len - root.thumb-len) * (root.offset / root.max-offset);
+
+    visible: root.total-size > root.page-size + 1px;
+    background: #ffffff10;
+
+    thumb := Rectangle {
+        x: root.horizontal ? root.thumb-pos : 3px;
+        y: root.horizontal ? 3px : root.thumb-pos;
+        width: root.horizontal ? root.thumb-len : root.thickness - 6px;
+        height: root.horizontal ? root.thickness - 6px : root.thumb-len;
+        border-radius: (root.thickness - 6px) / 2;
+        background: ta.pressed ? #d8d8d8 : (ta.has-hover ? #b2b2b2 : #808080);
+    }
+
+    ta := TouchArea {
+        property <length> press-along;
+        property <length> press-offset;
+        pointer-event(e) => {
+            if (e.button == PointerEventButton.left && e.kind == PointerEventKind.down) {
+                self.press-along = root.horizontal ? self.mouse-x : self.mouse-y;
+                self.press-offset = root.offset;
+            }
+        }
+        moved => {
+            if (self.pressed) {
+                root.moved(clamp(
+                    self.press-offset
+                        + ((root.horizontal ? self.mouse-x : self.mouse-y) - self.press-along)
+                          * (root.max-offset / max(1px, root.track-len - root.thumb-len)),
+                    0px, root.max-offset));
+            }
+        }
+    }
+}
+
+// ── Left navigation panel: page thumbnails ──────────────────────────────────
+
+// A scrollable column of page thumbnails. Thumbnails render lazily: each slot
+// asks for its bitmap (`request-thumb`) the first time it scrolls into view.
+export component ThumbPanel inherits Rectangle {
+    in property <[PageItem]> thumbs;
+    in property <int> current-page;
+    callback goto(int);          // navigate to a 1-based page
+    callback request-thumb(int); // a thumbnail slot needs rendering (0-based)
+    callback collapse();
+
+    property <length> thumb-w: 138px;
+
+    min-width: 208px;
+    max-width: 208px;
+    background: #2d2d2d;
+
+    VerticalLayout {
+        // Header: the active "Thumbnails" tab + a collapse button.
+        Rectangle {
+            height: 34px;
+            background: #262626;
+            HorizontalLayout {
+                Rectangle {
+                    horizontal-stretch: 1;
+                    Text {
+                        text: "Thumbnails";
+                        color: #f0f0f0;
+                        font-size: 12px;
+                        font-weight: 600;
+                        vertical-alignment: center;
+                        x: 12px;
+                    }
+                    Rectangle {
+                        height: 2px;
+                        width: 84px;
+                        x: 12px;
+                        y: parent.height - 2px;
+                        background: #e0822e;
+                    }
+                }
+                Rectangle {
+                    min-width: 32px;
+                    max-width: 32px;
+                    background: cta.has-hover ? #ffffff18 : transparent;
+                    Text {
+                        text: "«";
+                        color: #c8c8c8;
+                        font-size: 15px;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
+                    cta := TouchArea {
+                        clicked => { root.collapse(); }
+                    }
+                }
+            }
+        }
+
+        // Scrollable thumbnail column. Uses a Flickable + the custom Scrollbar
+        // (same as the page area) so dragging the thumb tracks the cursor 1:1,
+        // unlike a ListView scrollbar with variable-height items.
+        Rectangle {
+            vertical-stretch: 1;
+            clip: true;
+
+            tflick := Flickable {
+                width: 100%;
+                height: 100%;
+                viewport-width: self.width;
+                viewport-height: max(tcol.preferred-height, self.height);
+
+                tcol := VerticalLayout {
+                    width: tflick.viewport-width;
+                    alignment: start;
+
+                    for t[idx] in root.thumbs: Rectangle {
+                        property <bool> is-current: idx + 1 == root.current-page;
+                        height: root.thumb-w * t.aspect + 30px;
+                        background: is-current ? #ffffff10 : (ta.has-hover ? #ffffff08 : transparent);
+                        init => { root.request-thumb(idx); }
+
+                        ta := TouchArea {
+                            clicked => { root.goto(idx + 1); }
+                        }
+
+                        VerticalLayout {
+                            padding-top: 8px;
+                            padding-bottom: 4px;
+                            spacing: 3px;
+                            alignment: start;
+
+                            HorizontalLayout {
+                                alignment: center;
+                                Rectangle {
+                                    width: root.thumb-w;
+                                    height: root.thumb-w * t.aspect;
+                                    background: white;
+                                    border-width: is-current ? 2px : 1px;
+                                    border-color: is-current ? #e0822e : #00000055;
+                                    drop-shadow-color: #00000055;
+                                    drop-shadow-blur: 4px;
+                                    drop-shadow-offset-y: 1px;
+                                    Image {
+                                        source: t.image;
+                                        width: 100%;
+                                        height: 100%;
+                                        visible: t.loaded;
+                                    }
+                                }
+                            }
+                            Text {
+                                text: "\{idx + 1}";
+                                color: is-current ? #e8841a : #a8a8a8;
+                                font-size: 11px;
+                                horizontal-alignment: center;
+                            }
+                        }
+                    }
+                }
+            }
+
+            Scrollbar {
+                horizontal: false;
+                width: 10px;
+                x: parent.width - self.width;
+                y: 0;
+                height: parent.height;
+                page-size: tflick.height;
+                total-size: tflick.viewport-height;
+                offset: -tflick.viewport-y;
+                moved(o) => { tflick.viewport-y = -o; }
+            }
+        }
+    }
+}
+
+// ── Right navigation panel: document properties ─────────────────────────────
+
+// Read-only document properties shown in the right panel.
+export struct DocProps {
+    file-name: string,
+    file-path: string,
+    file-size: string,
+    title: string,
+    author: string,
+    subject: string,
+    keywords: string,
+    creator: string,
+    producer: string,
+    created: string,
+    modified: string,
+    version: string,
+    pages: string,
+}
+
+// A label + value row: right-aligned label in a fixed column, value beside it.
+// Shows "-" when the value is empty.
+component PropField inherits HorizontalLayout {
+    in property <string> label;
+    in property <string> value;
+    in property <color> value-color: #d6d6d6;
+    spacing: 8px;
+    padding-left: 4px;
+    padding-right: 8px;
+
+    Text {
+        text: root.label;
+        color: #9a9a9a;
+        font-size: 11px;
+        horizontal-alignment: right;
+        vertical-alignment: top;
+        min-width: 68px;
+        max-width: 68px;
+    }
+    Text {
+        text: root.value == "" ? "-" : root.value;
+        color: root.value == "" ? #6f6f6f : root.value-color;
+        font-size: 11px;
+        wrap: word-wrap;
+        horizontal-stretch: 1;
+    }
+}
+
+// A collapsible section header (dark bar + caret); two-way bound `expanded`.
+component PropHeader inherits Rectangle {
+    in property <string> title;
+    in-out property <bool> expanded: true;
+    height: 25px;
+    background: #232323;
+
+    TouchArea { clicked => { root.expanded = !root.expanded; } }
+    Text {
+        text: root.title;
+        x: 8px;
+        color: #cfcfcf;
+        font-size: 11px;
+        font-weight: 700;
+        vertical-alignment: center;
+        height: parent.height;
+    }
+    Text {
+        text: root.expanded ? "▼" : "▶";
+        x: parent.width - self.width - 8px;
+        color: #9a9a9a;
+        font-size: 9px;
+        vertical-alignment: center;
+        height: parent.height;
+    }
+}
+
+// The collapsible right-hand document-properties panel.
+export component PropsPanel inherits Rectangle {
+    in property <DocProps> props;
+    in property <string> page-size;
+    in property <int> current-page;
+    in property <int> total-pages;
+    callback collapse();
+
+    property <bool> doc-open: true;
+    property <bool> meta-open: true;
+    property <bool> annot-open: true;
+
+    min-width: 248px;
+    max-width: 248px;
+    background: #2d2d2d;
+
+    VerticalLayout {
+        // Title bar: collapse (») + "Properties".
+        Rectangle {
+            height: 34px;
+            background: #262626;
+            HorizontalLayout {
+                Rectangle {
+                    min-width: 32px;
+                    max-width: 32px;
+                    background: cta.has-hover ? #ffffff18 : transparent;
+                    Text {
+                        text: "»";
+                        color: #c8c8c8;
+                        font-size: 15px;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
+                    cta := TouchArea {
+                        clicked => { root.collapse(); }
+                    }
+                }
+                Text {
+                    text: "Properties";
+                    color: #f0f0f0;
+                    font-size: 12px;
+                    font-weight: 600;
+                    vertical-alignment: center;
+                    horizontal-stretch: 1;
+                }
+            }
+        }
+
+        Rectangle {
+            vertical-stretch: 1;
+            clip: true;
+
+            pflick := Flickable {
+                width: 100%;
+                height: 100%;
+                viewport-width: self.width;
+                viewport-height: max(pcol.preferred-height, self.height);
+
+                pcol := VerticalLayout {
+                    width: pflick.viewport-width;
+                    alignment: start;
+
+                    PropHeader { title: "DOCUMENT"; expanded <=> root.doc-open; }
+                    if root.doc-open: VerticalLayout {
+                        padding-top: 6px;
+                        padding-bottom: 8px;
+                        spacing: 5px;
+                        PropField { label: "File"; value: root.props.file-name; }
+                        PropField { label: "Path"; value: root.props.file-path; }
+                        PropField { label: "Pages"; value: "\{root.current-page} / \{root.total-pages}"; value-color: #e8a45e; }
+                        PropField { label: "Page Size"; value: root.page-size; value-color: #e8a45e; }
+                    }
+
+                    PropHeader { title: "METADATA"; expanded <=> root.meta-open; }
+                    if root.meta-open: VerticalLayout {
+                        padding-top: 6px;
+                        padding-bottom: 8px;
+                        spacing: 5px;
+                        PropField { label: "Title"; value: root.props.title; }
+                        PropField { label: "Author"; value: root.props.author; }
+                        PropField { label: "Subject"; value: root.props.subject; }
+                        PropField { label: "Keywords"; value: root.props.keywords; }
+                        PropField { label: "Creator"; value: root.props.creator; }
+                        PropField { label: "Producer"; value: root.props.producer; }
+                        PropField { label: "Created"; value: root.props.created; }
+                        PropField { label: "Modified"; value: root.props.modified; }
+                        PropField { label: "PDF Version"; value: root.props.version; value-color: #e8a45e; }
+                    }
+
+                    PropHeader { title: "ANNOTATIONS"; expanded <=> root.annot-open; }
+                    if root.annot-open: VerticalLayout {
+                        padding-top: 6px;
+                        padding-bottom: 12px;
+                        spacing: 5px;
+                        PropField { label: "Total"; value: "0"; }
+                        PropField { label: "On Page"; value: "0 (page \{root.current-page})"; }
+                        Text {
+                            text: "Annotations aren't available yet.";
+                            color: #7a7a7a;
+                            font-italic: true;
+                            font-size: 11px;
+                            horizontal-alignment: center;
+                            wrap: word-wrap;
+                        }
+                    }
+                }
+            }
+
+            Scrollbar {
+                horizontal: false;
+                width: 10px;
+                x: parent.width - self.width;
+                y: 0;
+                height: parent.height;
+                page-size: pflick.height;
+                total-size: pflick.viewport-height;
+                offset: -pflick.viewport-y;
+                moved(o) => { pflick.viewport-y = -o; }
+            }
+        }
+    }
 }
 
 // ── Ribbon widgets ───────────────────────────────────────────────────────────
@@ -211,50 +700,4 @@ export component RibbonSmallButton inherits Rectangle {
     }
 }
 
-// Always-visible-when-needed scrollbar (overlay). Bind it to a ScrollView's
-// viewport/visible sizes and report drags back via `moved`.
-export component Scrollbar inherits Rectangle {
-    in property <bool> horizontal: false;
-    in property <length> page-size;   // visible extent along the axis
-    in property <length> total-size;  // content extent along the axis
-    in property <length> offset;      // current scroll offset (0..max), positive
-    callback moved(length);           // requested new offset
-
-    property <length> thickness: 12px;
-    property <length> track-len: root.horizontal ? root.width : root.height;
-    property <length> thumb-len: clamp(root.track-len * (root.page-size / max(1px, root.total-size)), 28px, root.track-len);
-    property <length> max-offset: max(1px, root.total-size - root.page-size);
-    property <length> thumb-pos: (root.track-len - root.thumb-len) * (root.offset / root.max-offset);
-
-    visible: root.total-size > root.page-size + 1px;
-    background: #ffffff10;
-
-    thumb := Rectangle {
-        x: root.horizontal ? root.thumb-pos : 3px;
-        y: root.horizontal ? 3px : root.thumb-pos;
-        width: root.horizontal ? root.thumb-len : root.thickness - 6px;
-        height: root.horizontal ? root.thickness - 6px : root.thumb-len;
-        border-radius: (root.thickness - 6px) / 2;
-        background: ta.pressed ? #d8d8d8 : (ta.has-hover ? #b2b2b2 : #808080);
-    }
-
-    ta := TouchArea {
-        property <length> press-along;
-        property <length> press-offset;
-        pointer-event(e) => {
-            if (e.button == PointerEventButton.left && e.kind == PointerEventKind.down) {
-                self.press-along = root.horizontal ? self.mouse-x : self.mouse-y;
-                self.press-offset = root.offset;
-            }
-        }
-        moved => {
-            if (self.pressed) {
-                root.moved(clamp(
-                    self.press-offset
-                        + ((root.horizontal ? self.mouse-x : self.mouse-y) - self.press-along)
-                          * (root.max-offset / max(1px, root.track-len - root.thumb-len)),
-                    0px, root.max-offset));
-            }
-        }
-    }
-}
+// (Scrollbar is defined earlier in this file so panels can use it.)
