@@ -34,6 +34,9 @@ desktop.ini
 *.swp
 *~
 
+# Claude Code local instructions (not shared)
+/CLAUDE.md
+
 # Notes:
 # - pdfium.dll is the PDFium engine the app loads at runtime; it is committed so
 #   the app runs on clone. Swap to a download-on-build step if you prefer.

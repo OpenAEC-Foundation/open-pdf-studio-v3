@@ -51,3 +51,11 @@ name = "PDF Document"
 # generic default.
 [package.metadata.packager.nsis]
 installer-icon = "icons/icon.ico"
+# Register a friendly display name so Windows' "Open with" shows "Open PDF
+# Studio" rather than the exe filename (more reliable than FileDescription alone,
+# and survives the shell's name cache). SHCTX = HKLM or HKCU per install mode.
+preinstall-section = '''
+Section PreInstall
+  WriteRegStr SHCTX "Software\Classes\Applications\open-pdf-studio3.exe" "FriendlyAppName" "Open PDF Studio"
+SectionEnd
+'''
