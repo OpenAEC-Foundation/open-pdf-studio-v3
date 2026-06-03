@@ -1,0 +1,40 @@
+# Rust / Cargo build output (shared across the workspace)
+/target/
+
+# Backup files from rustfmt
+**/*.rs.bk
+
+# Cargo.lock: kept (this workspace produces a binary application).
+
+# Logs / scratch
+*.log
+/temp/
+
+# PDFium SDK extraction leftovers at the repo root (only pdfium.dll is needed)
+/bin/
+/include/
+/lib/
+/licenses/
+/LICENSE
+/PDFiumConfig.cmake
+/VERSION
+/args.gn
+
+# Per-platform PDFium fetched by CI for packaging
+/crates/app/pdfium-lib/
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Editor / IDE
+.idea/
+.vscode/
+*.swp
+*~
+
+# Notes:
+# - pdfium.dll is the PDFium engine the app loads at runtime; it is committed so
+#   the app runs on clone. Swap to a download-on-build step if you prefer.
+# - crates/app expects the PDFium DLL next to the binary or in the working dir.

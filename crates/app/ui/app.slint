@@ -1,0 +1,389 @@
+import { ScrollView } from "std-widgets.slint";
+import { Ribbon } from "ribbon.slint";
+import { NavButton, EditField, Scrollbar } from "components.slint";
+import { Backstage, RecentFile } from "backstage.slint";
+import { Preferences } from "preferences.slint";
+
+// One page slot. `aspect` (height/width) is known up front from cheap page
+// metadata so the row has the right height before its bitmap is rendered.
+struct PageItem {
+    image: image,
+    aspect: float,
+    loaded: bool,
+}
+
+export component AppWindow inherits Window {
+    title: "Open PDF Studio — PDFium + Slint";
+    preferred-width: 980px;
+    preferred-height: 1040px;
+    min-width: 620px;
+    min-height: 480px;
+    background: #3a3a3a;
+
+    in property <[PageItem]> pages;
+    in property <string> status;
+    in-out property <int> total-pages;
+    in-out property <int> current-page: 1;
+    in-out property <float> zoom: 1.0;
+    in-out property <int> display-mode: 1; // 0 = Single page, 1 = Continuous scroll
+
+    // Scratch state for Ctrl+wheel zoom-to-cursor (Slint functions have no locals).
+    property <float> zoom-step: 1.15;
+    property <float> za-z0;
+    property <float> za-z1;
+    property <length> za-tx;
+    property <length> za-ty;
+    in-out property <bool> backstage-open: false;
+    in property <[RecentFile]> recent-files;
+    in-out property <bool> prefs-open: false;
+    in-out property <string> author-name;
+    in-out property <bool> restore-session: false;
+    in-out property <string> pref-language;
+    in-out property <string> pref-theme;
+
+    // Pages are drawn (and rendered) `base-width * zoom` wide. Keep `base-width`
+    // and the +16px row gap in sync with BASE_WIDTH / ROW_GAP in main.rs.
+    property <float> base-width: 1100;
+    property <length> page-width: base-width * 1px * root.zoom;
+    // Total height of the scroll content; computed in Rust and set explicitly so
+    // overflow/scroll is detected reliably regardless of the content variant.
+    in-out property <length> content-height;
+
+    // Live scroll geometry — read from Rust to decide which pages to render.
+    out property <length> scroll-y: -flick.viewport-y;
+    out property <length> view-height: flick.height;
+
+    callback open-file();              // "Open…" / File tab
+    callback zoom-changed(float);      // new render width in px (tells the worker)
+    callback goto-page(float);         // jump to a 1-based page
+    callback update-render();          // recompute current page + render visible pages
+    callback action-todo(string);      // a not-yet-implemented command was invoked
+    callback open-path(string);        // open a recent file by path
+    callback remove-recent(string);    // drop a file from the recents list
+    callback filter-recents(string);   // filter the recents list
+    callback exit-app();               // quit the application
+    callback save-prefs();             // persist Preferences to disk
+
+    function set-zoom(z: float) {
+        root.zoom = clamp(z, 0.1, 8.0);
+        root.zoom-changed(root.base-width * root.zoom);
+        root.update-render();
+    }
+
+    function fit-width() {
+        if root.total-pages > 0 {
+            root.set-zoom((flick.width - 24px) / 1px / root.base-width);
+        }
+    }
+    function fit-page() {
+        if root.total-pages > 0 && root.current-page >= 1 && root.current-page <= root.total-pages {
+            root.set-zoom((flick.height - 24px) / 1px / (root.base-width * root.pages[root.current-page - 1].aspect));
+        }
+    }
+
+    // Scroll so the content offset `y` (px from the top) sits at the viewport top.
+    public function scroll-to-y(y: length) {
+        flick.viewport-y = -min(y, max(0px, flick.viewport-height - flick.height));
+    }
+
+    // Ctrl+wheel zoom centered on the cursor at (cx, cy) within the page area:
+    // change the zoom, then re-anchor the scroll so the document point under the
+    // cursor stays put.
+    function zoom-at(delta: length, cx: length, cy: length) {
+        za-z0 = root.zoom;
+        za-z1 = clamp(delta > 0px ? root.zoom * root.zoom-step : root.zoom / root.zoom-step, 0.1, 8.0);
+        if (za-z1 == za-z0) {
+            return;
+        }
+        // cx/cy are content coordinates under the cursor; keep that point fixed
+        // by shifting the viewport by cx*(1 - newZoom/oldZoom).
+        za-tx = flick.viewport-x + cx * (1 - za-z1 / za-z0);
+        za-ty = flick.viewport-y + cy * (1 - za-z1 / za-z0);
+        root.set-zoom(za-z1);
+        flick.viewport-x = clamp(za-tx, -max(0px, flick.viewport-width - flick.width), 0px);
+        flick.viewport-y = clamp(za-ty, -max(0px, flick.viewport-height - flick.height), 0px);
+    }
+
+    // A document opened (page count changed) → render the first visible pages.
+    changed total-pages => { root.update-render(); }
+    // Current page changed (e.g. via navigation) → render it (matters in Single mode).
+    changed current-page => { root.update-render(); }
+
+    VerticalLayout {
+        // ── Ribbon ───────────────────────────────────────────────────────────
+        Ribbon {
+            can-prev: root.current-page > 1;
+            can-next: root.current-page < root.total-pages;
+            open-backstage => { root.backstage-open = true; }
+            open-file => { root.open-file(); }
+            select-hand => { root.action-todo("Hand tool"); }
+            screenshot => { root.action-todo("Screenshot"); }
+            zoom-in => { root.set-zoom(root.zoom * 1.25); }
+            zoom-out => { root.set-zoom(root.zoom / 1.25); }
+            zoom-100 => { root.set-zoom(1.0); }
+            fit-width => { root.fit-width(); }
+            fit-page => { root.fit-page(); }
+            rotate-left => { root.action-todo("Rotate left"); }
+            rotate-right => { root.action-todo("Rotate right"); }
+            tab-action(n) => { root.action-todo(n); }
+            display-mode: root.display-mode;
+            set-display-mode(m) => {
+                root.display-mode = m;
+                root.scroll-to-y(0px);
+                root.update-render();
+            }
+            first-page => { root.goto-page(1); }
+            prev-page => { root.goto-page(root.current-page - 1); }
+            next-page => { root.goto-page(root.current-page + 1); }
+            last-page => { root.goto-page(root.total-pages); }
+            find => { root.action-todo("Find"); }
+        }
+
+        // ── Page area ────────────────────────────────────────────────────────
+        // A Flickable provides native wheel scrolling; `viewport-height` is set
+        // explicitly (content-height, computed in Rust) so overflow is detected
+        // reliably. An input layer adds Ctrl+wheel zoom and middle-button pan; our
+        // own always-visible scrollbars overlay the edges.
+        Rectangle {
+            vertical-stretch: 1;
+            clip: true;
+
+            flick := Flickable {
+                width: 100%;
+                height: 100%;
+                viewport-width: max(root.page-width + 24px, self.width);
+                viewport-height: max(root.content-height, self.height);
+                changed viewport-y => { root.update-render(); }
+                changed viewport-x => { root.update-render(); }
+                changed height => { root.update-render(); }
+
+                // Continuous: every page stacked vertically.
+                if root.display-mode == 1: VerticalLayout {
+                    width: flick.viewport-width;
+
+                    for page[idx] in root.pages: Rectangle {
+                        height: root.page-width * page.aspect + 16px;
+
+                        Rectangle {
+                            width: root.page-width;
+                            height: root.page-width * page.aspect;
+                            x: (parent.width - self.width) / 2;
+                            y: 8px;
+                            background: white;
+                            drop-shadow-color: #00000066;
+                            drop-shadow-blur: 8px;
+                            drop-shadow-offset-y: 2px;
+
+                            Image {
+                                source: page.image;
+                                width: 100%;
+                                height: 100%;
+                                visible: page.loaded;
+                            }
+                            Text {
+                                text: "Page \{idx + 1} — loading…";
+                                color: #aaaaaa;
+                                font-size: 16px;
+                                horizontal-alignment: center;
+                                vertical-alignment: center;
+                                visible: !page.loaded;
+                            }
+                        }
+                    }
+                }
+
+                // Single: only the current page (navigation changes which page).
+                if root.display-mode == 0: single := Rectangle {
+                    property <float> cur-aspect: root.total-pages > 0 ? root.pages[root.current-page - 1].aspect : 1.4142;
+                    property <bool> cur-loaded: root.total-pages > 0 && root.pages[root.current-page - 1].loaded;
+                    property <image> cur-image: root.pages[root.current-page - 1].image;
+
+                    width: flick.viewport-width;
+                    height: root.page-width * single.cur-aspect + 16px;
+
+                    Rectangle {
+                        width: root.page-width;
+                        height: root.page-width * single.cur-aspect;
+                        x: (parent.width - self.width) / 2;
+                        y: 8px;
+                        background: white;
+                        drop-shadow-color: #00000066;
+                        drop-shadow-blur: 8px;
+                        drop-shadow-offset-y: 2px;
+
+                        Image {
+                            source: single.cur-image;
+                            width: 100%;
+                            height: 100%;
+                            visible: single.cur-loaded;
+                        }
+                        Text {
+                            text: "Page \{root.current-page} — loading…";
+                            color: #aaaaaa;
+                            font-size: 16px;
+                            horizontal-alignment: center;
+                            vertical-alignment: center;
+                            visible: !single.cur-loaded;
+                        }
+                    }
+                }
+
+                // Input over the content: Ctrl+wheel zooms toward the cursor;
+                // middle-button drag pans. Plain wheel is rejected so the Flickable
+                // scrolls it natively. (`mouse-x/y` here are content coordinates.)
+                input := TouchArea {
+                    width: flick.viewport-width;
+                    height: flick.viewport-height;
+                    mouse-cursor: self.pan-active ? MouseCursor.grabbing : MouseCursor.default;
+
+                    property <bool> pan-active;
+                    property <length> pan-sx;
+                    property <length> pan-sy;
+                    property <length> pan-ox;
+                    property <length> pan-oy;
+
+                    pointer-event(e) => {
+                        if (e.button == PointerEventButton.middle) {
+                            if (e.kind == PointerEventKind.down) {
+                                self.pan-active = true;
+                                self.pan-sx = self.absolute-position.x + self.mouse-x;
+                                self.pan-sy = self.absolute-position.y + self.mouse-y;
+                                self.pan-ox = flick.viewport-x;
+                                self.pan-oy = flick.viewport-y;
+                            } else if (e.kind == PointerEventKind.up) {
+                                self.pan-active = false;
+                            }
+                        }
+                    }
+                    moved => {
+                        if (self.pan-active) {
+                            flick.viewport-x = clamp(self.pan-ox + (self.absolute-position.x + self.mouse-x - self.pan-sx), -max(0px, flick.viewport-width - flick.width), 0px);
+                            flick.viewport-y = clamp(self.pan-oy + (self.absolute-position.y + self.mouse-y - self.pan-sy), -max(0px, flick.viewport-height - flick.height), 0px);
+                        }
+                    }
+                    scroll-event(e) => {
+                        if (e.modifiers.control) {
+                            root.zoom-at(e.delta-y, self.mouse-x, self.mouse-y);
+                            return accept;
+                        }
+                        reject
+                    }
+                }
+            }
+
+            // vertical scrollbar (right edge)
+            Scrollbar {
+                horizontal: false;
+                width: 12px;
+                x: parent.width - self.width;
+                y: 0;
+                height: parent.height;
+                page-size: flick.height;
+                total-size: flick.viewport-height;
+                offset: -flick.viewport-y;
+                moved(o) => { flick.viewport-y = -o; }
+            }
+            // horizontal scrollbar (bottom edge)
+            Scrollbar {
+                horizontal: true;
+                height: 12px;
+                x: 0;
+                y: parent.height - self.height;
+                width: parent.width;
+                page-size: flick.width;
+                total-size: flick.viewport-width;
+                offset: -flick.viewport-x;
+                moved(o) => { flick.viewport-x = -o; }
+            }
+        }
+
+        // ── Status bar (bottom): status · page-nav (centered) · zoom ─────────
+        Rectangle { height: 1px; background: #1c1c1c; } // divider
+        Rectangle {
+            height: 38px;
+            background: #2b2b2b;
+
+            navrow := HorizontalLayout {
+                width: self.preferred-width;
+                height: self.preferred-height;
+                x: (parent.width - self.width) / 2;
+                y: (parent.height - self.height) / 2;
+                spacing: 5px;
+
+                NavButton { text: "«"; enabled: root.current-page > 1; clicked => { root.goto-page(1); } }
+                NavButton { text: "‹"; enabled: root.current-page > 1; clicked => { root.goto-page(root.current-page - 1); } }
+                Text { text: "Page"; color: #b8b8b8; font-size: 12px; vertical-alignment: center; }
+                EditField {
+                    value: "\{root.current-page}";
+                    field-width: 50px;
+                    accepted(t) => { root.goto-page(t.to-float()); }
+                }
+                Text { text: "/ \{root.total-pages}"; color: #b8b8b8; font-size: 12px; vertical-alignment: center; }
+                NavButton { text: "›"; enabled: root.current-page < root.total-pages; clicked => { root.goto-page(root.current-page + 1); } }
+                NavButton { text: "»"; enabled: root.current-page < root.total-pages; clicked => { root.goto-page(root.total-pages); } }
+            }
+
+            HorizontalLayout {
+                width: self.preferred-width;
+                height: self.preferred-height;
+                x: parent.width - self.width - 12px;
+                y: (parent.height - self.height) / 2;
+                spacing: 5px;
+
+                NavButton { text: "−"; clicked => { root.set-zoom(root.zoom / 1.25); } }
+                EditField {
+                    value: "\{round(root.zoom * 100)}";
+                    field-width: 46px;
+                    accepted(t) => { root.set-zoom(t.to-float() / 100); }
+                }
+                Text { text: "%"; color: #c8c8c8; font-size: 12px; vertical-alignment: center; }
+                NavButton { text: "+"; clicked => { root.set-zoom(root.zoom * 1.25); } }
+            }
+
+            Text {
+                x: 12px;
+                width: max(0px, (parent.width - navrow.width) / 2 - 24px);
+                height: parent.height;
+                vertical-alignment: center;
+                horizontal-alignment: left;
+                overflow: elide;
+                text: root.status;
+                color: #c8c8c8;
+                font-size: 12px;
+            }
+        }
+    }
+
+    // ── File backstage (full-window overlay) ──────────────────────────────
+    if root.backstage-open: Backstage {
+        width: 100%;
+        height: 100%;
+        recents: root.recent-files;
+        close => { root.backstage-open = false; }
+        do-open => { root.backstage-open = false; root.open-file(); }
+        do-exit => { root.exit-app(); }
+        open-recent(p) => { root.backstage-open = false; root.open-path(p); }
+        remove-recent(p) => { root.remove-recent(p); }
+        todo(n) => { root.backstage-open = false; root.action-todo(n); }
+        filter-recents(t) => { root.filter-recents(t); }
+        open-prefs => { root.backstage-open = false; root.prefs-open = true; }
+    }
+
+    // ── Preferences (modal overlay) ───────────────────────────────────────
+    if root.prefs-open: Preferences {
+        width: 100%;
+        height: 100%;
+        author-name <=> root.author-name;
+        restore-session <=> root.restore-session;
+        language <=> root.pref-language;
+        theme <=> root.pref-theme;
+        close => { root.prefs-open = false; }
+        save => { root.prefs-open = false; root.save-prefs(); }
+        reset => {
+            root.author-name = "";
+            root.restore-session = false;
+            root.pref-language = "Auto-detect";
+            root.pref-theme = "Default";
+        }
+    }
+}

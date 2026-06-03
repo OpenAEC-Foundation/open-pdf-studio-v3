@@ -1,0 +1,14 @@
+# Virtual workspace root — no package here, just the member crates.
+#   crates/app        — the Slint application (binary)
+#   crates/pdf-engine — the UI-agnostic PDF engine (library)
+# Add more crates under crates/ as the app grows.
+[workspace]
+members = ["crates/app", "crates/pdf-engine"]
+resolver = "3"
+
+# Single source of truth for dependency versions across all crates.
+[workspace.dependencies]
+slint = "1.16.1"
+slint-build = "1.16.1"
+rfd = "0.17.2"
+pdfium-render = "0.9.1"

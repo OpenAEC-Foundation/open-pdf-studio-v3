@@ -1,0 +1,8 @@
+[package]
+name = "pdf-engine"
+version = "0.1.0"
+edition = "2024"
+description = "PDF rendering engine (PDFium) — UI-agnostic core for Open PDF Studio"
+
+[dependencies]
+pdfium-render = { workspace = true }

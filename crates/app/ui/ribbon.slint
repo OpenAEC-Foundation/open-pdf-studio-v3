@@ -1,0 +1,301 @@
+import { RibbonTab, RibbonGroup, RibbonLargeButton, RibbonSmallButton, EditField } from "components.slint";
+
+// The ribbon: a tab strip plus the body of the active tab. Only the Home tab is
+// populated; other tabs are placeholders. All actions are emitted as callbacks
+// for the application to wire up.
+export component Ribbon inherits Rectangle {
+    in-out property <int> active-tab: 1; // 1 = Home
+    in-out property <int> active-tool: 1; // 0 = Hand, 1 = Select
+    in property <bool> can-prev: false;
+    in property <bool> can-next: false;
+
+    callback open-file();
+    callback open-backstage();
+    callback select-hand();
+    callback select-cursor();
+    callback screenshot();
+    callback zoom-in();
+    callback zoom-out();
+    callback zoom-100();
+    callback fit-page();
+    callback fit-width();
+    callback rotate-left();
+    callback rotate-right();
+    callback first-page();
+    callback prev-page();
+    callback next-page();
+    callback last-page();
+    callback find();
+    callback tab-action(string); // generic stub for Comments/View commands
+    in property <int> display-mode;      // 0 = Single, 1 = Continuous
+    callback set-display-mode(int);
+
+    background: #333740;
+
+    VerticalLayout {
+        // ── Tab strip ────────────────────────────────────────────────────────
+        Rectangle {
+            height: 32px;
+            background: #2a2d34;
+            HorizontalLayout {
+                alignment: start;
+                RibbonTab { text: "File"; clicked => { root.open-backstage(); } }
+                RibbonTab { text: "Home"; active: root.active-tab == 1; clicked => { root.active-tab = 1; } }
+                RibbonTab { text: "Comments"; active: root.active-tab == 2; clicked => { root.active-tab = 2; } }
+                RibbonTab { text: "Drawing"; active: root.active-tab == 3; clicked => { root.active-tab = 3; } }
+                RibbonTab { text: "View"; active: root.active-tab == 4; clicked => { root.active-tab = 4; } }
+                RibbonTab { text: "Edit & Combine PDFs"; active: root.active-tab == 5; clicked => { root.active-tab = 5; } }
+                RibbonTab { text: "AI"; active: root.active-tab == 6; clicked => { root.active-tab = 6; } }
+                RibbonTab { text: "Settings"; active: root.active-tab == 7; clicked => { root.active-tab = 7; } }
+            }
+        }
+
+        // ── Body (snug fixed height; inner layout fills it so captions reach
+        //     the bottom with no dead space) ──────────────────────────────────
+        Rectangle {
+            height: 100px;
+            background: #333740;
+
+            // Home tab
+            if root.active-tab == 1: HorizontalLayout {
+                height: 100%;
+                padding-top: 4px;
+                padding-left: 4px;
+                padding-right: 4px;
+                padding-bottom: 1px;
+                alignment: start;
+
+                RibbonGroup {
+                    title: "TOOLS";
+                    RibbonLargeButton {
+                        text: "Hand";
+                        icon: @image-url("icons/hand.svg");
+                        active: root.active-tool == 0;
+                        clicked => { root.active-tool = 0; root.select-hand(); }
+                    }
+                    RibbonLargeButton {
+                        text: "Select";
+                        icon: @image-url("icons/cursor.svg");
+                        active: root.active-tool == 1;
+                        clicked => { root.active-tool = 1; root.select-cursor(); }
+                    }
+                    RibbonLargeButton {
+                        text: "Screenshot";
+                        icon: @image-url("icons/camera.svg");
+                        has-dropdown: true;
+                        clicked => { root.screenshot(); }
+                    }
+                }
+
+                RibbonGroup {
+                    title: "VIEW";
+                    VerticalLayout {
+                        alignment: start;
+                        spacing: 2px;
+                        RibbonSmallButton { text: "Zoom In"; icon: @image-url("icons/zoom-in.svg"); clicked => { root.zoom-in(); } }
+                        RibbonSmallButton { text: "Zoom Out"; icon: @image-url("icons/zoom-out.svg"); clicked => { root.zoom-out(); } }
+                        RibbonSmallButton { text: "Fit Width"; icon: @image-url("icons/fit-width.svg"); clicked => { root.fit-width(); } }
+                    }
+                    VerticalLayout {
+                        alignment: start;
+                        spacing: 2px;
+                        RibbonSmallButton { text: "100%"; icon: @image-url("icons/actual-size.svg"); clicked => { root.zoom-100(); } }
+                        RibbonSmallButton { text: "Fit Page"; icon: @image-url("icons/fit-page.svg"); clicked => { root.fit-page(); } }
+                    }
+                    VerticalLayout {
+                        alignment: start;
+                        spacing: 2px;
+                        RibbonSmallButton { text: "Rotate Left"; icon: @image-url("icons/rotate-left.svg"); clicked => { root.rotate-left(); } }
+                        RibbonSmallButton { text: "Rotate Right"; icon: @image-url("icons/rotate-right.svg"); clicked => { root.rotate-right(); } }
+                    }
+                }
+
+                RibbonGroup {
+                    title: "NAVIGATE";
+                    VerticalLayout {
+                        alignment: start;
+                        spacing: 2px;
+                        RibbonSmallButton { text: "First"; icon: @image-url("icons/first.svg"); enabled: root.can-prev; clicked => { root.first-page(); } }
+                        RibbonSmallButton { text: "Previous"; icon: @image-url("icons/prev.svg"); enabled: root.can-prev; clicked => { root.prev-page(); } }
+                    }
+                    VerticalLayout {
+                        alignment: start;
+                        spacing: 2px;
+                        RibbonSmallButton { text: "Next"; icon: @image-url("icons/next.svg"); enabled: root.can-next; clicked => { root.next-page(); } }
+                        RibbonSmallButton { text: "Last"; icon: @image-url("icons/last.svg"); enabled: root.can-next; clicked => { root.last-page(); } }
+                    }
+                }
+
+                RibbonGroup {
+                    title: "FIND";
+                    RibbonLargeButton { text: "Find"; icon: @image-url("icons/find.svg"); clicked => { root.find(); } }
+                }
+
+                // soak up remaining width so groups pack to the left
+                Rectangle { horizontal-stretch: 1; }
+            }
+
+            // Comments tab
+            if root.active-tab == 2: HorizontalLayout {
+                height: 100%;
+                padding-top: 4px;
+                padding-left: 4px;
+                padding-right: 4px;
+                padding-bottom: 1px;
+                alignment: start;
+
+                RibbonGroup {
+                    title: "DRAWING";
+                    RibbonLargeButton { text: "Highlight"; icon: @image-url("icons/highlight.svg"); clicked => { root.tab-action("Highlight"); } }
+                }
+                RibbonGroup {
+                    title: "TEXT";
+                    RibbonLargeButton { text: "Text Box"; icon: @image-url("icons/select-dashed.svg"); clicked => { root.tab-action("Text Box"); } }
+                    RibbonLargeButton { text: "Callout"; icon: @image-url("icons/callout.svg"); clicked => { root.tab-action("Callout"); } }
+                    RibbonLargeButton { text: "Note"; icon: @image-url("icons/note.svg"); clicked => { root.tab-action("Note"); } }
+                }
+                RibbonGroup {
+                    title: "STAMP";
+                    RibbonLargeButton { text: "Stamp"; icon: @image-url("icons/stamp.svg"); clicked => { root.tab-action("Stamp"); } }
+                    RibbonLargeButton { text: "Signature"; icon: @image-url("icons/signature.svg"); clicked => { root.tab-action("Signature"); } }
+                    RibbonLargeButton { text: "Parametrisch"; icon: @image-url("icons/parametric.svg"); clicked => { root.tab-action("Parametrisch"); } }
+                }
+                RibbonGroup {
+                    title: "REDACTION";
+                    RibbonLargeButton { text: "Redact"; icon: @image-url("icons/redact.svg"); clicked => { root.tab-action("Redact"); } }
+                    RibbonLargeButton { text: "Apply"; icon: @image-url("icons/apply.svg"); icon-color: #e23b3b; clicked => { root.tab-action("Apply"); } }
+                }
+                RibbonGroup {
+                    title: "PROPERTIES";
+                    VerticalLayout {
+                        alignment: center;
+                        spacing: 8px;
+                        HorizontalLayout {
+                            spacing: 8px;
+                            VerticalLayout { alignment: center; Text { text: "COLOR"; color: #d8a23a; font-size: 11px; } }
+                            Rectangle {
+                                width: 46px; height: 18px; border-radius: 2px;
+                                background: #e23b3b; border-width: 1px; border-color: #888;
+                                TouchArea { clicked => { root.tab-action("Color"); } }
+                            }
+                        }
+                        HorizontalLayout {
+                            spacing: 8px;
+                            VerticalLayout { alignment: center; Text { text: "WIDTH"; color: #d8a23a; font-size: 11px; } }
+                            EditField { value: "1"; field-width: 52px; }
+                        }
+                    }
+                }
+                RibbonGroup {
+                    title: "EDIT";
+                    VerticalLayout {
+                        alignment: start;
+                        spacing: 2px;
+                        RibbonSmallButton { text: "Clear Page"; icon: @image-url("icons/clear-page.svg"); clicked => { root.tab-action("Clear Page"); } }
+                        RibbonSmallButton { text: "Clear All"; icon: @image-url("icons/clear-all.svg"); clicked => { root.tab-action("Clear All"); } }
+                    }
+                }
+                RibbonGroup {
+                    title: "MEASURE";
+                    VerticalLayout {
+                        alignment: start;
+                        spacing: 2px;
+                        RibbonSmallButton { text: "Distance"; icon: @image-url("icons/distance.svg"); clicked => { root.tab-action("Distance"); } }
+                        RibbonSmallButton { text: "Area"; icon: @image-url("icons/area.svg"); clicked => { root.tab-action("Area"); } }
+                    }
+                    VerticalLayout {
+                        alignment: start;
+                        spacing: 2px;
+                        RibbonSmallButton { text: "Perimeter"; icon: @image-url("icons/perimeter.svg"); clicked => { root.tab-action("Perimeter"); } }
+                        RibbonSmallButton { text: "Angle"; icon: @image-url("icons/angle.svg"); clicked => { root.tab-action("Angle"); } }
+                    }
+                }
+                RibbonGroup {
+                    title: "SCALE";
+                    RibbonLargeButton { text: "Scale Region"; icon: @image-url("icons/select-dashed.svg"); clicked => { root.tab-action("Scale Region"); } }
+                    RibbonLargeButton { text: "Scale region on page"; icon: @image-url("icons/scale-page.svg"); clicked => { root.tab-action("Scale region on page"); } }
+                }
+                RibbonGroup {
+                    title: "TAKE-OFF";
+                    RibbonLargeButton { text: "Take-Off"; icon: @image-url("icons/takeoff.svg"); clicked => { root.tab-action("Take-Off"); } }
+                }
+                Rectangle { horizontal-stretch: 1; }
+            }
+
+            // View tab
+            if root.active-tab == 4: HorizontalLayout {
+                height: 100%;
+                padding-top: 4px;
+                padding-left: 4px;
+                padding-right: 4px;
+                padding-bottom: 1px;
+                alignment: start;
+
+                RibbonGroup {
+                    title: "PAGE DISPLAY";
+                    RibbonLargeButton { text: "Single"; icon: @image-url("icons/single.svg"); active: root.display-mode == 0; clicked => { root.set-display-mode(0); } }
+                    RibbonLargeButton { text: "Continuous"; icon: @image-url("icons/continuous.svg"); active: root.display-mode == 1; clicked => { root.set-display-mode(1); } }
+                }
+                RibbonGroup {
+                    title: "DISPLAY";
+                    RibbonLargeButton { text: "Thin Lines"; icon: @image-url("icons/thin-lines.svg"); clicked => { root.tab-action("Thin Lines"); } }
+                }
+                RibbonGroup {
+                    title: "PANELS";
+                    RibbonLargeButton { text: "Navigation"; icon: @image-url("icons/navigation.svg"); clicked => { root.tab-action("Navigation"); } }
+                    RibbonLargeButton { text: "Properties"; icon: @image-url("icons/preferences.svg"); active: true; clicked => { root.tab-action("Properties"); } }
+                    RibbonLargeButton { text: "Annotations"; icon: @image-url("icons/annotations.svg"); clicked => { root.tab-action("Annotations"); } }
+                    RibbonLargeButton { text: "Tool Palette"; icon: @image-url("icons/tool-palette.svg"); clicked => { root.tab-action("Tool Palette"); } }
+                    RibbonLargeButton { text: "Symbols"; icon: @image-url("icons/symbols.svg"); clicked => { root.tab-action("Symbols"); } }
+                }
+                RibbonGroup {
+                    title: "APPEARANCE";
+                    VerticalLayout {
+                        alignment: center;
+                        spacing: 6px;
+                        Text { text: "THEME"; color: #d8a23a; font-size: 11px; }
+                        HorizontalLayout {
+                            spacing: 4px;
+                            Rectangle { width: 18px; height: 18px; background: #ffffff; border-width: 1px; border-color: #777; }
+                            Rectangle { width: 18px; height: 18px; background: #cfcfcf; border-width: 1px; border-color: #777; }
+                            Rectangle { width: 18px; height: 18px; background: #e0822e; border-width: 1px; border-color: #777; }
+                            Rectangle { width: 18px; height: 18px; background: #2b2b2b; border-width: 1px; border-color: #777; }
+                            Rectangle {
+                                min-width: 88px; height: 22px; border-radius: 3px;
+                                background: #1f1f1f; border-width: 1px; border-color: #4a4a4a;
+                                HorizontalLayout {
+                                    padding-left: 8px;
+                                    padding-right: 6px;
+                                    spacing: 4px;
+                                    Text { text: "Default"; color: #e0e0e0; font-size: 12px; vertical-alignment: center; horizontal-stretch: 1; }
+                                    VerticalLayout { alignment: center; Image { source: @image-url("icons/caret-down.svg"); width: 12px; height: 12px; colorize: #b0b0b0; } }
+                                }
+                                TouchArea { clicked => { root.tab-action("Theme"); } }
+                            }
+                        }
+                    }
+                }
+                RibbonGroup {
+                    title: "COMPARE";
+                    RibbonLargeButton { text: "Compare PDFs"; icon: @image-url("icons/compare.svg"); enabled: false; clicked => { root.tab-action("Compare PDFs"); } }
+                }
+                RibbonGroup {
+                    title: "WINDOW";
+                    RibbonLargeButton { text: "Fullscreen"; icon: @image-url("icons/fullscreen.svg"); clicked => { root.tab-action("Fullscreen"); } }
+                }
+                Rectangle { horizontal-stretch: 1; }
+            }
+
+            // Placeholder for not-yet-built tabs
+            if root.active-tab != 1 && root.active-tab != 2 && root.active-tab != 4: HorizontalLayout {
+                padding: 14px;
+                Text {
+                    text: "This tab is coming soon.";
+                    color: #9a9a9a;
+                    font-size: 13px;
+                    vertical-alignment: center;
+                }
+            }
+        }
+    }
+}

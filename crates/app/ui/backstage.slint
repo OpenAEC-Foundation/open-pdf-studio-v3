@@ -1,0 +1,268 @@
+// The "File" application menu (backstage). A full-window overlay with three
+// panes: command list (left), sub-navigation (middle), Recent Files (right).
+
+import { ScrollView } from "std-widgets.slint";
+
+export struct RecentFile {
+    name: string,
+    path: string,
+}
+
+// Left command-list row: icon · label · shortcut.
+component MenuItem inherits Rectangle {
+    in property <string> text;
+    in property <image> icon;
+    in property <string> shortcut;
+    in property <bool> selected: false;
+    callback clicked;
+
+    height: 40px;
+    background: root.selected ? #3a342b : (ta.has-hover ? #ffffff12 : transparent);
+
+    Rectangle { // orange selection strip
+        x: 0; width: 3px; height: parent.height;
+        background: root.selected ? #e0822e : transparent;
+    }
+    ta := TouchArea { clicked => { root.clicked(); } }
+    HorizontalLayout {
+        padding-left: 16px;
+        padding-right: 16px;
+        spacing: 12px;
+        VerticalLayout {
+            alignment: center;
+            Image { source: root.icon; width: 18px; height: 18px; colorize: #d6d6d6; }
+        }
+        VerticalLayout {
+            alignment: center;
+            horizontal-stretch: 1;
+            Text { text: root.text; color: #ececec; font-size: 13px; }
+        }
+        VerticalLayout {
+            alignment: center;
+            Text { text: root.shortcut; color: #8c8c8c; font-size: 12px; }
+        }
+    }
+}
+
+// Middle sub-navigation row.
+component NavItem inherits Rectangle {
+    in property <string> text;
+    in property <image> icon;
+    in property <bool> selected: false;
+    callback clicked;
+
+    height: 42px;
+    background: root.selected ? #ffffff1c : (ta.has-hover ? #ffffff10 : transparent);
+
+    ta := TouchArea { clicked => { root.clicked(); } }
+    HorizontalLayout {
+        padding-left: 16px;
+        spacing: 12px;
+        VerticalLayout {
+            alignment: center;
+            Image { source: root.icon; width: 18px; height: 18px; colorize: root.selected ? #4a9eff : #c8c8c8; }
+        }
+        VerticalLayout {
+            alignment: center;
+            Text { text: root.text; color: #e8e8e8; font-size: 13px; }
+        }
+    }
+}
+
+// One Recent Files entry.
+component RecentRow inherits Rectangle {
+    in property <string> name;
+    in property <string> path;
+    callback open;
+    callback remove;
+    callback pin;
+
+    height: 48px;
+    background: ta.has-hover ? #ffffff10 : transparent;
+    border-radius: 4px;
+
+    ta := TouchArea { clicked => { root.open(); } }
+    HorizontalLayout {
+        padding-left: 8px;
+        padding-right: 8px;
+        spacing: 10px;
+
+        VerticalLayout {
+            alignment: center;
+            Rectangle {
+                width: 22px; height: 26px; border-radius: 3px; background: #c0392b;
+                Text { text: "PDF"; color: white; font-size: 7px; horizontal-alignment: center; vertical-alignment: center; }
+            }
+        }
+        VerticalLayout {
+            alignment: center;
+            horizontal-stretch: 1;
+            spacing: 1px;
+            Text { text: root.name; color: #4a9eff; font-size: 13px; overflow: elide; }
+            Text { text: root.path; color: #9a9a9a; font-size: 11px; overflow: elide; }
+        }
+        VerticalLayout {
+            alignment: center;
+            HorizontalLayout {
+                spacing: 4px;
+                Rectangle {
+                    width: 24px; height: 24px; border-radius: 3px;
+                    background: pta.has-hover ? #ffffff18 : transparent;
+                    Image { source: @image-url("icons/pin.svg"); width: 14px; height: 14px; colorize: #b0b0b0; }
+                    pta := TouchArea { clicked => { root.pin(); } }
+                }
+                Rectangle {
+                    width: 24px; height: 24px; border-radius: 3px;
+                    background: cta.has-hover ? #ffffff18 : transparent;
+                    Image { source: @image-url("icons/close.svg"); width: 14px; height: 14px; colorize: #b0b0b0; }
+                    cta := TouchArea { clicked => { root.remove(); } }
+                }
+            }
+        }
+    }
+}
+
+export component Backstage inherits Rectangle {
+    in property <[RecentFile]> recents;
+    callback close();
+    callback do-open();
+    callback do-exit();
+    callback open-recent(string);
+    callback remove-recent(string);
+    callback todo(string);
+    callback filter-recents(string);
+    callback open-prefs();
+
+    property <int> active-mid: 0; // 0 Recent · 1 Sessions · 2 URL · 3 Add · 4 Browse
+
+    background: #2b2b2b;
+
+    HorizontalLayout {
+        spacing: 0px;
+
+        // ── Left: command list ───────────────────────────────────────────────
+        Rectangle {
+            width: 258px;
+            background: #232323;
+            VerticalLayout {
+                Rectangle { // orange header
+                    height: 44px;
+                    background: #e0822e;
+                    HorizontalLayout {
+                        padding-left: 10px;
+                        spacing: 10px;
+                        Rectangle {
+                            width: 30px;
+                            background: bta.has-hover ? #ffffff22 : transparent;
+                            border-radius: 4px;
+                            Image { source: @image-url("icons/back.svg"); width: 18px; height: 18px; colorize: white; }
+                            bta := TouchArea { clicked => { root.close(); } }
+                        }
+                        VerticalLayout { alignment: center; Text { text: "File"; color: white; font-size: 16px; } }
+                    }
+                }
+
+                MenuItem { text: "New"; icon: @image-url("icons/new.svg"); shortcut: "Ctrl+N"; clicked => { root.todo("New"); } }
+                MenuItem { text: "Open"; icon: @image-url("icons/open.svg"); shortcut: "Ctrl+O"; selected: true; clicked => { root.do-open(); } }
+                MenuItem { text: "Save"; icon: @image-url("icons/save.svg"); shortcut: "Ctrl+S"; clicked => { root.todo("Save"); } }
+                MenuItem { text: "Save As..."; icon: @image-url("icons/save.svg"); shortcut: "Ctrl+Shift+S"; clicked => { root.todo("Save As"); } }
+                MenuItem { text: "Print"; icon: @image-url("icons/print.svg"); shortcut: "Ctrl+P"; clicked => { root.todo("Print"); } }
+                Rectangle { height: 8px; Rectangle { y: 3px; height: 1px; background: #383838; } }
+                MenuItem { text: "Import"; icon: @image-url("icons/import.svg"); clicked => { root.todo("Import"); } }
+                MenuItem { text: "Export"; icon: @image-url("icons/export.svg"); clicked => { root.todo("Export"); } }
+                Rectangle { height: 8px; Rectangle { y: 3px; height: 1px; background: #383838; } }
+                MenuItem { text: "Extensions"; icon: @image-url("icons/extensions.svg"); clicked => { root.todo("Extensions"); } }
+                MenuItem { text: "Document Properties"; icon: @image-url("icons/doc-props.svg"); shortcut: "Ctrl+D"; clicked => { root.todo("Document Properties"); } }
+                MenuItem { text: "Preferences"; icon: @image-url("icons/preferences.svg"); shortcut: "Ctrl+,"; clicked => { root.open-prefs(); } }
+                Rectangle { height: 8px; Rectangle { y: 3px; height: 1px; background: #383838; } }
+                MenuItem { text: "About"; icon: @image-url("icons/about.svg"); clicked => { root.todo("About"); } }
+                MenuItem { text: "What's new"; icon: @image-url("icons/whats-new.svg"); clicked => { root.todo("What's new"); } }
+                Rectangle { height: 8px; Rectangle { y: 3px; height: 1px; background: #383838; } }
+                MenuItem { text: "Exit"; icon: @image-url("icons/exit.svg"); shortcut: "Alt+F4"; clicked => { root.do-exit(); } }
+
+                Rectangle { vertical-stretch: 1; } // filler
+            }
+        }
+
+        // ── Middle: sub-navigation ───────────────────────────────────────────
+        Rectangle {
+            width: 200px;
+            background: #2b2b2b;
+            VerticalLayout {
+                padding-top: 8px;
+                NavItem { text: "Recent Files"; icon: @image-url("icons/recent.svg"); selected: root.active-mid == 0; clicked => { root.active-mid = 0; } }
+                NavItem { text: "Sessions"; icon: @image-url("icons/sessions.svg"); selected: root.active-mid == 1; clicked => { root.active-mid = 1; } }
+                NavItem { text: "Open from URL"; icon: @image-url("icons/url.svg"); selected: root.active-mid == 2; clicked => { root.active-mid = 2; } }
+                NavItem { text: "Add a Place"; icon: @image-url("icons/add-place.svg"); selected: root.active-mid == 3; clicked => { root.active-mid = 3; } }
+                NavItem { text: "Browse"; icon: @image-url("icons/browse.svg"); clicked => { root.do-open(); } }
+                Rectangle { vertical-stretch: 1; }
+            }
+        }
+
+        // ── Right: content ───────────────────────────────────────────────────
+        Rectangle {
+            horizontal-stretch: 1;
+            background: #2f2f2f;
+            VerticalLayout {
+                padding: 22px;
+                spacing: 12px;
+
+                Text {
+                    text: root.active-mid == 0 ? "Recent Files" : "Coming soon";
+                    color: white;
+                    font-size: 20px;
+                }
+
+                if root.active-mid == 0: VerticalLayout {
+                    spacing: 10px;
+
+                    // search box
+                    Rectangle {
+                        height: 34px;
+                        background: #262626;
+                        border-radius: 4px;
+                        border-width: 1px;
+                        border-color: #444;
+                        HorizontalLayout {
+                            padding-left: 10px;
+                            padding-right: 10px;
+                            spacing: 8px;
+                            VerticalLayout { alignment: center; Image { source: @image-url("icons/find.svg"); width: 16px; height: 16px; colorize: #888; } }
+                            Rectangle {
+                                Text { text: "Find…"; color: #777; font-size: 13px; vertical-alignment: center; horizontal-alignment: left; visible: findinput.text == ""; }
+                                findinput := TextInput {
+                                    color: #e0e0e0; font-size: 13px; vertical-alignment: center; single-line: true;
+                                    edited => { root.filter-recents(self.text); }
+                                }
+                            }
+                        }
+                    }
+
+                    Text { text: "Pinned Recents (0)"; color: #b0b0b0; font-size: 12px; }
+                    Rectangle { height: 1px; background: #404040; }
+                    Text { text: "Unpinned Recents (\{root.recents.length})"; color: #b0b0b0; font-size: 12px; }
+                    Rectangle { height: 1px; background: #404040; }
+
+                    ScrollView {
+                        vertical-stretch: 1;
+                        VerticalLayout {
+                            for r in root.recents: RecentRow {
+                                name: r.name;
+                                path: r.path;
+                                open => { root.open-recent(r.path); }
+                                remove => { root.remove-recent(r.path); }
+                                pin => { root.todo("Pin"); }
+                            }
+                        }
+                    }
+                }
+
+                if root.active-mid != 0: Text {
+                    text: "This section is coming soon.";
+                    color: #9a9a9a;
+                    font-size: 14px;
+                }
+            }
+        }
+    }
+}

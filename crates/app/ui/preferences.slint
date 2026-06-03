@@ -1,0 +1,179 @@
+// Preferences modal — a centered dialog over a dimmed backdrop. Uses standard
+// widgets (GroupBox/ComboBox/CheckBox/LineEdit/Button) for the controls and a
+// custom dark category sidebar.
+
+import { GroupBox, ComboBox, CheckBox, LineEdit, Button } from "std-widgets.slint";
+
+component PrefCategory inherits Rectangle {
+    in property <string> text;
+    in property <image> icon;
+    in property <bool> selected: false;
+    callback clicked;
+
+    height: 38px;
+    background: root.selected ? #3b4654 : (ta.has-hover ? #ffffff10 : transparent);
+
+    Rectangle { x: 0; width: 3px; height: parent.height; background: root.selected ? #e0822e : transparent; }
+    ta := TouchArea { clicked => { root.clicked(); } }
+    HorizontalLayout {
+        padding-left: 14px;
+        spacing: 10px;
+        VerticalLayout { alignment: center; Image { source: root.icon; width: 16px; height: 16px; colorize: #d0d0d0; } }
+        VerticalLayout { alignment: center; Text { text: root.text; color: #e6e6e6; font-size: 13px; } }
+    }
+}
+
+export component Preferences inherits Rectangle {
+    callback close();
+    callback save();
+    callback reset();
+    in-out property <string> author-name;
+    in-out property <bool> restore-session;
+    in-out property <string> language;
+    in-out property <string> theme;
+
+    property <int> active-cat: 0;
+    property <length> off-x: 0px; // drag offset from centered position
+    property <length> off-y: 0px;
+
+    background: #000000aa; // dim backdrop
+    TouchArea {} // swallow clicks on the backdrop
+
+    Rectangle {
+        width: 600px;
+        height: 520px;
+        x: (parent.width - self.width) / 2 + root.off-x;
+        y: (parent.height - self.height) / 2 + root.off-y;
+        background: #2b2b2b;
+        border-width: 1px;
+        border-color: #555;
+        drop-shadow-blur: 24px;
+        drop-shadow-color: #000000bb;
+
+        VerticalLayout {
+            // ── Title bar ──────────────────────────────────────────────────
+            Rectangle {
+                height: 36px;
+                background: #232323;
+                // drag the modal by its title bar (uses stable screen coords so
+                // it tracks the cursor even as the dialog moves)
+                drag := TouchArea {
+                    mouse-cursor: move;
+                    property <length> sx;
+                    property <length> sy;
+                    property <length> ox;
+                    property <length> oy;
+                    pointer-event(e) => {
+                        if (e.button == PointerEventButton.left && e.kind == PointerEventKind.down) {
+                            self.sx = self.absolute-position.x + self.mouse-x;
+                            self.sy = self.absolute-position.y + self.mouse-y;
+                            self.ox = root.off-x;
+                            self.oy = root.off-y;
+                        }
+                    }
+                    moved => {
+                        if (self.pressed) {
+                            root.off-x = self.ox + (self.absolute-position.x + self.mouse-x - self.sx);
+                            root.off-y = self.oy + (self.absolute-position.y + self.mouse-y - self.sy);
+                        }
+                    }
+                }
+                HorizontalLayout {
+                    padding-left: 14px;
+                    padding-right: 6px;
+                    Text { text: "Preferences"; color: #f0f0f0; font-size: 14px; vertical-alignment: center; horizontal-stretch: 1; }
+                    Rectangle {
+                        width: 30px;
+                        border-radius: 4px;
+                        background: xta.has-hover ? #ffffff18 : transparent;
+                        Image {
+                            source: @image-url("icons/close.svg");
+                            width: 16px; height: 16px;
+                            colorize: #d0d0d0;
+                            x: (parent.width - self.width) / 2;
+                            y: (parent.height - self.height) / 2;
+                        }
+                        xta := TouchArea { clicked => { root.close(); } }
+                    }
+                }
+            }
+
+            // ── Body ───────────────────────────────────────────────────────
+            HorizontalLayout {
+                Rectangle { // sidebar
+                    width: 150px;
+                    background: #262626;
+                    VerticalLayout {
+                        padding-top: 6px;
+                        PrefCategory { text: "General"; icon: @image-url("icons/preferences.svg"); selected: root.active-cat == 0; clicked => { root.active-cat = 0; } }
+                        PrefCategory { text: "Annotations"; icon: @image-url("icons/callout.svg"); selected: root.active-cat == 1; clicked => { root.active-cat = 1; } }
+                        PrefCategory { text: "Behavior"; icon: @image-url("icons/behavior.svg"); selected: root.active-cat == 2; clicked => { root.active-cat = 2; } }
+                        PrefCategory { text: "Page Display"; icon: @image-url("icons/single.svg"); selected: root.active-cat == 3; clicked => { root.active-cat = 3; } }
+                        PrefCategory { text: "File Association"; icon: @image-url("icons/file-assoc.svg"); selected: root.active-cat == 4; clicked => { root.active-cat = 4; } }
+                        PrefCategory { text: "Virtual Printer"; icon: @image-url("icons/print.svg"); selected: root.active-cat == 5; clicked => { root.active-cat = 5; } }
+                        Rectangle { vertical-stretch: 1; }
+                    }
+                }
+                Rectangle { // content
+                    horizontal-stretch: 1;
+                    background: #2b2b2b;
+
+                    if root.active-cat == 0: VerticalLayout {
+                        padding: 16px;
+                        spacing: 14px;
+
+                        GroupBox {
+                            title: "Language";
+                            HorizontalLayout {
+                                spacing: 12px;
+                                Text { text: "Interface Language"; color: #d8d8d8; font-size: 13px; vertical-alignment: center; horizontal-stretch: 1; }
+                                ComboBox { model: ["Auto-detect", "English", "Deutsch", "Français", "Nederlands"]; current-value <=> root.language; min-width: 200px; }
+                            }
+                        }
+                        GroupBox {
+                            title: "Theme";
+                            HorizontalLayout {
+                                spacing: 12px;
+                                Text { text: "Application Theme"; color: #d8d8d8; font-size: 13px; vertical-alignment: center; horizontal-stretch: 1; }
+                                ComboBox { model: ["Default", "Light", "Dark"]; current-value <=> root.theme; min-width: 150px; }
+                            }
+                        }
+                        GroupBox {
+                            title: "Startup";
+                            CheckBox { text: "Restore last session when application starts"; checked <=> root.restore-session; }
+                        }
+                        GroupBox {
+                            title: "Author";
+                            HorizontalLayout {
+                                spacing: 12px;
+                                Text { text: "Author Name"; color: #d8d8d8; font-size: 13px; vertical-alignment: center; horizontal-stretch: 1; }
+                                LineEdit { text <=> root.author-name; min-width: 150px; }
+                            }
+                        }
+                        Rectangle { vertical-stretch: 1; }
+                    }
+
+                    if root.active-cat != 0: VerticalLayout {
+                        padding: 16px;
+                        Text { text: "This section is coming soon."; color: #9a9a9a; font-size: 13px; }
+                        Rectangle { vertical-stretch: 1; }
+                    }
+                }
+            }
+
+            // ── Bottom bar ─────────────────────────────────────────────────
+            Rectangle {
+                height: 52px;
+                background: #232323;
+                HorizontalLayout {
+                    padding: 10px;
+                    spacing: 8px;
+                    Button { text: "Reset to Defaults"; clicked => { root.reset(); } }
+                    Rectangle { horizontal-stretch: 1; }
+                    Button { text: "Cancel"; clicked => { root.close(); } }
+                    Button { text: "Save"; primary: true; clicked => { root.save(); } }
+                }
+            }
+        }
+    }
+}

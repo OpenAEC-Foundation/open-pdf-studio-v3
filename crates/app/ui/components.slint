@@ -1,0 +1,260 @@
+// Reusable UI widgets shared across the app (status bar + ribbon).
+
+// ── Status-bar widgets ───────────────────────────────────────────────────────
+
+// Compact, flat, hover-highlighted button.
+export component NavButton inherits Rectangle {
+    in property <string> text;
+    in property <bool> enabled: true;
+    callback clicked;
+
+    min-width: 26px;
+    max-width: 26px;
+    min-height: 24px;
+    max-height: 24px;
+    border-radius: 4px;
+    background: ta.has-hover && root.enabled ? #ffffff22 : transparent;
+
+    ta := TouchArea {
+        enabled: root.enabled;
+        clicked => { root.clicked(); }
+    }
+    Text {
+        text: root.text;
+        color: root.enabled ? #e6e6e6 : #6a6a6a;
+        font-size: 15px;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+}
+
+// Small dark editable numeric field. `value` is pushed in from outside; `accepted`
+// fires with the typed text when the user presses Enter.
+export component EditField inherits Rectangle {
+    in property <string> value;
+    in property <length> field-width: 46px;
+    callback accepted(string);
+    forward-focus: ti;
+
+    min-width: root.field-width;
+    max-width: root.field-width;
+    min-height: 24px;
+    max-height: 24px;
+    border-radius: 4px;
+    background: #1f1f1f;
+    border-width: 1px;
+    border-color: ti.has-focus ? #6aa9ff : #4a4a4a;
+
+    ti := TextInput {
+        width: 100%;
+        height: 100%;
+        color: #f0f0f0;
+        font-size: 13px;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+        single-line: true;
+        accepted => { root.accepted(self.text); }
+    }
+    init => { ti.text = root.value; }
+    changed value => { ti.text = root.value; }
+}
+
+// ── Ribbon widgets ───────────────────────────────────────────────────────────
+
+// A tab in the ribbon's tab strip.
+export component RibbonTab inherits Rectangle {
+    in property <string> text;
+    in property <bool> active: false;
+    callback clicked;
+
+    background: root.active ? #e0822e : (ta.has-hover ? #ffffff18 : transparent);
+    ta := TouchArea { clicked => { root.clicked(); } }
+    HorizontalLayout {
+        padding-left: 14px;
+        padding-right: 14px;
+        Text {
+            text: root.text;
+            color: root.active ? #ffffff : #d0d0d0;
+            font-size: 13px;
+            font-weight: root.active ? 700 : 400;
+            vertical-alignment: center;
+            horizontal-alignment: center;
+        }
+    }
+}
+
+// A group within a ribbon tab: a row of content with an orange caption beneath
+// and a divider on the right. Callers pass the content as children.
+export component RibbonGroup inherits Rectangle {
+    in property <string> title;
+    vertical-stretch: 1; // fill the body height so captions bottom-align
+
+    HorizontalLayout {
+        VerticalLayout {
+            padding-left: 8px;
+            padding-right: 8px;
+            padding-top: 5px;
+            padding-bottom: 2px;
+            spacing: 2px;
+
+            // Content fills the area between the top and the caption, so large
+            // buttons span the same height as the tallest small-button column
+            // (their tops/bottoms align across groups). The caption stays at the
+            // bottom because it sits after this stretched row.
+            HorizontalLayout {
+                vertical-stretch: 1;
+                alignment: center;
+                spacing: 6px;
+                @children
+            }
+            // caption
+            Text {
+                text: root.title;
+                color: #e0822e;
+                font-size: 10px;
+                horizontal-alignment: center;
+            }
+        }
+        Rectangle { width: 1px; background: #45474d; }
+    }
+}
+
+// Large command: icon above label (optionally with an active state / dropdown caret).
+export component RibbonLargeButton inherits Rectangle {
+    in property <string> text;
+    in property <image> icon;
+    in property <bool> active: false;
+    in property <bool> enabled: true;
+    in property <bool> has-dropdown: false;
+    in property <color> icon-color: #d4d4d4;
+    callback clicked;
+
+    min-width: 56px;
+    border-radius: 4px;
+    border-width: root.active ? 1px : 0px;
+    border-color: #e0822e;
+    background: root.active ? #e0822e2e : (ta.has-hover && root.enabled ? #ffffff18 : transparent);
+
+    ta := TouchArea { enabled: root.enabled; clicked => { root.clicked(); } }
+    VerticalLayout {
+        padding: 5px;
+        spacing: 3px;
+        alignment: center;
+
+        HorizontalLayout {
+            alignment: center;
+            Image {
+                source: root.icon;
+                width: 24px;
+                height: 24px;
+                colorize: !root.enabled ? #6a6a6a : (root.active ? #f4a261 : root.icon-color);
+            }
+        }
+        HorizontalLayout {
+            alignment: center;
+            spacing: 2px;
+            Text {
+                text: root.text;
+                color: root.enabled ? #dcdcdc : #6a6a6a;
+                font-size: 11px;
+                horizontal-alignment: center;
+            }
+            if root.has-dropdown: Image {
+                source: @image-url("icons/caret-down.svg");
+                width: 10px;
+                height: 10px;
+                colorize: #b0b0b0;
+            }
+        }
+    }
+}
+
+// Small command: icon beside label.
+export component RibbonSmallButton inherits Rectangle {
+    in property <string> text;
+    in property <image> icon;
+    in property <bool> enabled: true;
+    callback clicked;
+
+    min-height: 23px;
+    border-radius: 4px;
+    background: ta.has-hover && root.enabled ? #ffffff18 : transparent;
+
+    ta := TouchArea {
+        enabled: root.enabled;
+        clicked => { root.clicked(); }
+    }
+    HorizontalLayout {
+        padding-left: 6px;
+        padding-right: 12px;
+        spacing: 6px;
+        alignment: start;
+
+        HorizontalLayout {
+            alignment: center;
+            Image {
+                source: root.icon;
+                width: 16px;
+                height: 16px;
+                colorize: root.enabled ? #d0d0d0 : #6e6e6e;
+            }
+        }
+        HorizontalLayout {
+            alignment: start;
+            Text {
+                text: root.text;
+                color: root.enabled ? #d8d8d8 : #6e6e6e;
+                font-size: 12px;
+                vertical-alignment: center;
+            }
+        }
+    }
+}
+
+// Always-visible-when-needed scrollbar (overlay). Bind it to a ScrollView's
+// viewport/visible sizes and report drags back via `moved`.
+export component Scrollbar inherits Rectangle {
+    in property <bool> horizontal: false;
+    in property <length> page-size;   // visible extent along the axis
+    in property <length> total-size;  // content extent along the axis
+    in property <length> offset;      // current scroll offset (0..max), positive
+    callback moved(length);           // requested new offset
+
+    property <length> thickness: 12px;
+    property <length> track-len: root.horizontal ? root.width : root.height;
+    property <length> thumb-len: clamp(root.track-len * (root.page-size / max(1px, root.total-size)), 28px, root.track-len);
+    property <length> max-offset: max(1px, root.total-size - root.page-size);
+    property <length> thumb-pos: (root.track-len - root.thumb-len) * (root.offset / root.max-offset);
+
+    visible: root.total-size > root.page-size + 1px;
+    background: #ffffff10;
+
+    thumb := Rectangle {
+        x: root.horizontal ? root.thumb-pos : 3px;
+        y: root.horizontal ? 3px : root.thumb-pos;
+        width: root.horizontal ? root.thumb-len : root.thickness - 6px;
+        height: root.horizontal ? root.thickness - 6px : root.thumb-len;
+        border-radius: (root.thickness - 6px) / 2;
+        background: ta.pressed ? #d8d8d8 : (ta.has-hover ? #b2b2b2 : #808080);
+    }
+
+    ta := TouchArea {
+        property <length> press-along;
+        property <length> press-offset;
+        pointer-event(e) => {
+            if (e.button == PointerEventButton.left && e.kind == PointerEventKind.down) {
+                self.press-along = root.horizontal ? self.mouse-x : self.mouse-y;
+                self.press-offset = root.offset;
+            }
+        }
+        moved => {
+            if (self.pressed) {
+                root.moved(clamp(
+                    self.press-offset
+                        + ((root.horizontal ? self.mouse-x : self.mouse-y) - self.press-along)
+                          * (root.max-offset / max(1px, root.track-len - root.thumb-len)),
+                    0px, root.max-offset));
+            }
+        }
+    }
+}

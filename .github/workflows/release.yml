@@ -1,0 +1,94 @@
+name: Build installers
+
+# Runs on a version tag (v1.2.3 → attaches installers to a GitHub Release) and
+# can also be triggered manually (artifacts only).
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  package:
+    name: ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            pdfium-asset: pdfium-win-x64
+            pdfium-libfile: bin/pdfium.dll
+          - os: ubuntu-latest
+            pdfium-asset: pdfium-linux-x64
+            pdfium-libfile: lib/libpdfium.so
+          - os: macos-latest
+            pdfium-asset: pdfium-mac-arm64
+            pdfium-libfile: lib/libpdfium.dylib
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo build
+        uses: Swatinem/rust-cache@v2
+
+      # Slint's default (winit + femtovg) backend needs these to build on Linux.
+      - name: Install Slint build dependencies (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libfontconfig-dev libxcb1-dev libxcb-render0-dev libxcb-shape0-dev \
+            libxcb-xfixes0-dev libxkbcommon-dev libwayland-dev libgl1-mesa-dev
+
+      # The engine DLL/.so/.dylib isn't built from source — fetch the prebuilt
+      # one for this platform and stage it where it gets bundled (pdfium-lib/)
+      # and where local runs would find it (repo root).
+      - name: Fetch PDFium (${{ matrix.pdfium-asset }})
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p pdfium-dl crates/app/pdfium-lib
+          curl -L --fail -o pdfium-dl/pdfium.tgz \
+            "https://github.com/bblanchon/pdfium-binaries/releases/latest/download/${{ matrix.pdfium-asset }}.tgz"
+          tar -xzf pdfium-dl/pdfium.tgz -C pdfium-dl
+          cp "pdfium-dl/${{ matrix.pdfium-libfile }}" crates/app/pdfium-lib/
+          cp "pdfium-dl/${{ matrix.pdfium-libfile }}" .
+
+      - name: Install cargo-packager
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-packager
+
+      # `before-packaging-command` (in Cargo.toml) runs `cargo build --release`,
+      # then cargo-packager produces the platform installer(s).
+      - name: Package installers
+        run: cargo packager --release -p open-pdf-studio3 --verbose
+
+      - name: Collect installers
+        shell: bash
+        run: |
+          mkdir -p artifacts
+          find target -maxdepth 4 -type f \
+            \( -name '*.msi' -o -name '*-setup.exe' -o -name '*.dmg' \
+               -o -name '*.deb' -o -name '*.AppImage' -o -name '*.rpm' \) \
+            -exec cp {} artifacts/ \; 2>/dev/null || true
+          echo "Collected:"; ls -la artifacts || true
+
+      - name: Upload installer artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: installers-${{ matrix.os }}
+          path: artifacts/*
+          if-no-files-found: warn
+
+      - name: Attach to GitHub Release (tags only)
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: artifacts/*
