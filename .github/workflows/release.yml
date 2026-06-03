@@ -1,7 +1,9 @@
 name: Build installers
 
-# Runs on a version tag (v1.2.3 → attaches installers to a GitHub Release) and
-# can also be triggered manually (artifacts only).
+# Runs on a version tag (v1.2.3) and can also be triggered manually.
+#   • Every run builds the per-OS installers and uploads them as artifacts.
+#   • On a tag, a final `release` job fans in — it waits for all three builds,
+#     downloads their artifacts, and publishes ONE GitHub Release with the lot.
 on:
   push:
     tags: ["v*"]
@@ -12,7 +14,7 @@ permissions:
 
 jobs:
   package:
-    name: ${{ matrix.os }}
+    name: build (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -87,8 +89,28 @@ jobs:
           path: artifacts/*
           if-no-files-found: warn
 
-      - name: Attach to GitHub Release (tags only)
-        if: startsWith(github.ref, 'refs/tags/v')
+  # Fan-in: only after ALL three builds succeed, and only for a version tag.
+  # Downloads every build's artifacts and publishes them as one GitHub Release.
+  release:
+    name: Publish GitHub Release
+    needs: package
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all installer artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          pattern: installers-*
+          merge-multiple: true
+
+      - name: List collected installers
+        run: |
+          echo "Publishing:"; ls -la dist || true
+
+      - name: Publish release
         uses: softprops/action-gh-release@v2
         with:
-          files: artifacts/*
+          files: dist/*
+          fail_on_unmatched_files: true
+          generate_release_notes: true
